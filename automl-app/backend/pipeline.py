@@ -300,8 +300,17 @@ def run_automl(filepath, target_column, selected_models=None, callback=None):
         training_duration = round(end_time - start_time, 2)
 
         best_model = search.best_estimator_
-        trained_models[name] = best_model 
+        trained_models[name] = best_model
         y_pred = best_model.predict(X_test)
+
+        # Merge fixed reproducibility kwargs from the configured estimator
+        # into best_params so codegen emits them (RandomizedSearchCV only
+        # returns tuned params, so random_state=42 would otherwise be lost).
+        exported_params = dict(search.best_params_)
+        fitted_clf = best_model.named_steps['classifier']
+        rs = getattr(fitted_clf, 'random_state', None)
+        if rs is not None:
+            exported_params['classifier__random_state'] = rs
 
         metrics = {
             "Model": name,
@@ -309,7 +318,7 @@ def run_automl(filepath, target_column, selected_models=None, callback=None):
             "Training Time (s)": training_duration,
             "Max RAM (MB)": round(monitor.max_ram, 2),
             "Max CPU (%)": round(monitor.max_cpu, 2),
-            "Best Params": search.best_params_
+            "Best Params": exported_params
         }
 
         if task_type == "Classification":

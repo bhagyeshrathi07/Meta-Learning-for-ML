@@ -39,7 +39,7 @@ for f in glob.glob(os.path.join(UPLOAD_FOLDER, "*.csv")):
 print("🧹 Server Cleaned: Old temp files removed.")
 
 # --- BACKGROUND WORKER ---
-def background_task(task_id, filepath, target, selected_models):
+def background_task(task_id, filepath, target, selected_models, original_filename):
     """Runs the pipeline in a separate thread and handles cleanup."""
     try:
         def update_progress(progress, message):
@@ -55,6 +55,8 @@ def background_task(task_id, filepath, target, selected_models):
         tasks[task_id]['status'] = 'completed'
         tasks[task_id]['progress'] = 100
         tasks[task_id]['results'] = results
+        tasks[task_id]['target'] = target
+        tasks[task_id]['filename'] = original_filename
         tasks[task_id]['logs'].append("✅ Pipeline completed successfully.")
 
     except Exception as e:
@@ -104,7 +106,7 @@ def upload_file():
     }
 
     # Offload to background thread
-    executor.submit(background_task, task_id, filepath, target, selected_models)
+    executor.submit(background_task, task_id, filepath, target, selected_models, file.filename)
 
     return jsonify({"task_id": task_id, "message": "Processing started"})
 
@@ -158,7 +160,8 @@ def download_code():
         model_name,
         model_data.get("Best Params", {}),
         model_data.get("Task Type", "Classification"),
-        "target_column" # Placeholder name
+        task.get("target") or "target_column",
+        task.get("filename") or "your_dataset.csv"
     )
 
     return Response(
