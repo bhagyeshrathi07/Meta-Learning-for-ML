@@ -1,4 +1,4 @@
-def generate_training_script(model_name, best_params, task_type, target_col):
+def generate_training_script(model_name, best_params, task_type, target_col, dataset_filename="your_dataset.csv"):
     param_str = ", ".join([f"{k.split('__')[1]}={v!r}" for k, v in best_params.items()])
     imports = ""
     model_code = ""
@@ -47,12 +47,15 @@ def generate_training_script(model_name, best_params, task_type, target_col):
 
     metrics_import = ""
     eval_code = ""
+    split_code = ""
     if task_type == "Classification":
         metrics_import = "from sklearn.metrics import accuracy_score, classification_report"
         eval_code = 'print("Accuracy:", accuracy_score(y_test, y_pred))\nprint(classification_report(y_test, y_pred))'
+        split_code = "X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)"
     else:
         metrics_import = "from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error"
-        eval_code = 'print("R2 Score:", r2_score(y_test, y_pred))\nprint("MAE:", mean_absolute_error(y_test, y_pred))\nprint("RMSE:", mean_squared_error(y_test, y_pred, squared=False))'
+        eval_code = 'print("R2 Score:", r2_score(y_test, y_pred))\nprint("MAE:", mean_absolute_error(y_test, y_pred))\nprint("RMSE:", np.sqrt(mean_squared_error(y_test, y_pred)))'
+        split_code = "X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)"
 
     script = f"""
 import pandas as pd
@@ -66,9 +69,14 @@ from sklearn.pipeline import Pipeline
 {metrics_import}
 
 # 1. Load Data
-# TODO: Update this path
-df = pd.read_csv('your_dataset.csv') 
+# TODO: Update this path if your file lives elsewhere
+df = pd.read_csv('{dataset_filename}', sep=None, engine='python')
 target_col = '{target_col}'
+
+# Drop ID-like columns (mirrors the app's pipeline cleaning)
+for _c in list(df.columns):
+    if _c.lower() == 'id' or 'id' in _c.lower().split('_'):
+        df = df.drop(columns=[_c])
 
 # 2. Preprocessing
 X = df.drop(columns=[target_col])
@@ -83,7 +91,7 @@ preprocessor = ColumnTransformer(transformers=[
 ])
 
 # 3. Split
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+{split_code}
 
 # 4. Train
 {model_code}
