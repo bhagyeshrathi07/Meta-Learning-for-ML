@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import ConfusionMatrix from './ConfusionMatrix';
 import ROCChart from './ROCChart';
 import RegressionChart from './RegressionChart';
 
-const Leaderboard = ({ results, darkMode, taskId }) => {
+// In production (Docker), use same origin. In development, use localhost:5000
+const API_BASE_URL = process.env.NODE_ENV === 'production' ? '' : 'http://127.0.0.1:5000';
+
+const Leaderboard = ({ results, darkMode, taskId, apiKey }) => {
 
   // Determine default sort key based on task type
   const defaultSort = (results && results.length > 0 && results[0]["Task Type"] === "Regression")
@@ -50,6 +54,39 @@ const Leaderboard = ({ results, darkMode, taskId }) => {
   const bestModel = sortedResults[0];
   const taskType = bestModel["Task Type"] || "Classification";
   const isClassification = taskType === "Classification";
+
+  // Handle authenticated downloads
+  const handleDownload = async (url, filename) => {
+    try {
+      const response = await axios.get(url, {
+        headers: { 'X-API-Key': apiKey },
+        responseType: 'blob'
+      });
+      const blob = new Blob([response.data]);
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (err) {
+      console.error('Download failed:', err);
+      alert('Download failed. Please check your API key.');
+    }
+  };
+
+  const handleDownloadModel = (modelName) => {
+    handleDownload(
+      `${API_BASE_URL}/download?model=${encodeURIComponent(modelName)}`,
+      `${modelName.replace(/ /g, '_')}.pkl`
+    );
+  };
+
+  const handleDownloadCode = (modelName) => {
+    handleDownload(
+      `${API_BASE_URL}/download-code?model=${encodeURIComponent(modelName)}&task_id=${taskId}`,
+      `train_${modelName.replace(/ /g, '_')}.py`
+    );
+  };
 
   // Reusable Header Component with sorting arrow logic
   const SortableHeader = ({ label, metricKey }) => {
@@ -193,8 +230,8 @@ const Leaderboard = ({ results, darkMode, taskId }) => {
 
               {/* Action Buttons */}
               <div className="col-md-5 d-flex flex-column gap-3 justify-content-center font-monospace">
-                <a href={`http://127.0.0.1:5000/download?model=${bestModel.Model}`} className="btn btn-success w-100 shadow-lg py-3">📦 Download Model (.pkl)</a>
-                <a href={`http://127.0.0.1:5000/download-code?model=${bestModel.Model}&task_id=${taskId}`} className="btn btn-outline-primary w-100 py-3" style={{ borderWidth: '2px' }}>📜 Generate Python Script</a>
+                <button onClick={() => handleDownloadModel(bestModel.Model)} className="btn btn-success w-100 shadow-lg py-3">📦 Download Model (.pkl)</button>
+                <button onClick={() => handleDownloadCode(bestModel.Model)} className="btn btn-outline-primary w-100 py-3" style={{ borderWidth: '2px' }}>📜 Generate Python Script</button>
               </div>
             </div>
 

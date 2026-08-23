@@ -2,17 +2,57 @@ import os
 import json
 import uuid
 import glob
+import hmac
 import threading
+from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
-from flask import Flask, request, jsonify, send_file, Response
+from flask import Flask, request, jsonify, send_file, Response, send_from_directory
 from flask_cors import CORS
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Import custom modules
 from pipeline import run_automl
 from codegen import generate_training_script
 
-app = Flask(__name__)
+# Check if running in Docker (static folder exists)
+STATIC_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+IS_DOCKER = os.path.exists(STATIC_FOLDER)
+
+if IS_DOCKER:
+    app = Flask(__name__, static_folder='static', static_url_path='')
+else:
+    app = Flask(__name__)
+
 CORS(app)
+
+# --- API KEY CONFIGURATION ---
+API_KEY = os.getenv('AUTOML_API_KEY')
+if not API_KEY:
+    print("⚠️  WARNING: AUTOML_API_KEY not set in .env file. API is unprotected!")
+
+
+def require_api_key(f):
+    """Decorator to protect endpoints with API key validation."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        api_key = request.headers.get('X-API-Key')
+
+        if not API_KEY:
+            # If no API key configured, allow all requests (development mode)
+            return f(*args, **kwargs)
+
+        if not api_key:
+            return jsonify({"error": "API key required", "code": "MISSING_API_KEY"}), 401
+
+        # Use timing-safe comparison to prevent timing attacks
+        if not hmac.compare_digest(api_key, API_KEY):
+            return jsonify({"error": "Invalid API key", "code": "INVALID_API_KEY"}), 401
+
+        return f(*args, **kwargs)
+    return decorated
 
 # --- CONFIGURATION ---
 UPLOAD_FOLDER = 'uploads'
@@ -72,7 +112,26 @@ def background_task(task_id, filepath, target, selected_models):
             print(f"🗑️ Deleted temp file: {filepath}")
 
 # --- ROUTES ---
+@app.route('/validate-key', methods=['POST'])
+def validate_key():
+    """Endpoint for frontend to validate API key before allowing access."""
+    api_key = request.headers.get('X-API-Key')
+
+    if not API_KEY:
+        # No API key configured - always valid (development mode)
+        return jsonify({"valid": True, "message": "API key validation disabled"})
+
+    if not api_key:
+        return jsonify({"valid": False, "message": "API key required"}), 401
+
+    if hmac.compare_digest(api_key, API_KEY):
+        return jsonify({"valid": True, "message": "API key validated successfully"})
+    else:
+        return jsonify({"valid": False, "message": "Invalid API key"}), 401
+
+
 @app.route('/upload', methods=['POST'])
+@require_api_key
 def upload_file():
     if 'file' not in request.files:
         return jsonify({"error": "No file part"}), 400
@@ -109,6 +168,7 @@ def upload_file():
     return jsonify({"task_id": task_id, "message": "Processing started"})
 
 @app.route('/status/<task_id>', methods=['GET'])
+@require_api_key
 def get_status(task_id):
     """Frontend polls this endpoint to get progress bar updates"""
     task = tasks.get(task_id)
@@ -117,6 +177,7 @@ def get_status(task_id):
     return jsonify(task)
 
 @app.route('/download', methods=['GET'])
+@require_api_key
 def download_model():
     """Downloads the .pkl file"""
     model_name = request.args.get('model')
@@ -135,6 +196,7 @@ def download_model():
     return send_file(path, as_attachment=True)
 
 @app.route('/download-code', methods=['GET'])
+@require_api_key
 def download_code():
     """Generates a Python script to reproduce the model"""
     model_name = request.args.get('model')
@@ -167,5 +229,19 @@ def download_code():
         headers={"Content-disposition": f"attachment; filename=train_{model_name.replace(' ', '_')}.py"}
     )
 
+# --- SERVE REACT APP (Docker/Production) ---
+if IS_DOCKER:
+    @app.route('/')
+    def serve_react():
+        return send_from_directory(app.static_folder, 'index.html')
+
+    @app.errorhandler(404)
+    def not_found(e):
+        # Serve React app for client-side routing
+        return send_from_directory(app.static_folder, 'index.html')
+
+
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    # In Docker, bind to 0.0.0.0 to accept external connections
+    host = '0.0.0.0' if IS_DOCKER else '127.0.0.1'
+    app.run(debug=not IS_DOCKER, host=host, port=5000)

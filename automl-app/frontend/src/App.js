@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import Papa from 'papaparse';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
 import Leaderboard from './Leaderboard';
+
+// In production (Docker), use same origin. In development, use localhost:5000
+const API_BASE_URL = process.env.NODE_ENV === 'production' ? '' : 'http://127.0.0.1:5000';
 
 const MODELS_CONFIG = {
   "Classification": ["Logistic Regression", "Random Forest", "SVM", "KNN", "XGBoost", "Decision Tree"],
@@ -12,6 +15,13 @@ const MODELS_CONFIG = {
 
 function App() {
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
+
+  // API Key State
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('apiKey') || '');
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [isValidatingKey, setIsValidatingKey] = useState(false);
+  const [keyError, setKeyError] = useState('');
+
   const [file, setFile] = useState(null);
   const [target, setTarget] = useState('');
   const [columns, setColumns] = useState([]);
@@ -32,6 +42,54 @@ function App() {
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const validateApiKey = useCallback(async (key) => {
+    setIsValidatingKey(true);
+    setKeyError('');
+    try {
+      const res = await axios.post(`${API_BASE_URL}/validate-key`, {}, {
+        headers: { 'X-API-Key': key }
+      });
+      if (res.data.valid) {
+        setApiKey(key);
+        localStorage.setItem('apiKey', key);
+        setKeyError('');
+      }
+    } catch (err) {
+      setKeyError(err.response?.data?.message || 'Invalid API key');
+      setApiKey('');
+      localStorage.removeItem('apiKey');
+    } finally {
+      setIsValidatingKey(false);
+    }
+  }, []);
+
+  // Validate API key on app load if one exists in localStorage
+  useEffect(() => {
+    if (apiKey) {
+      validateApiKey(apiKey);
+    }
+  }, [apiKey, validateApiKey]);
+
+  const handleApiKeySubmit = (e) => {
+    e.preventDefault();
+    if (apiKeyInput.trim()) {
+      validateApiKey(apiKeyInput.trim());
+    }
+  };
+
+  const handleLogout = () => {
+    setApiKey('');
+    setApiKeyInput('');
+    localStorage.removeItem('apiKey');
+    // Reset app state
+    setFile(null);
+    setTarget('');
+    setColumns([]);
+    setDataStats(null);
+    setDetectedTaskType(null);
+    setResults(null);
+  };
 
   useEffect(() => {
     document.documentElement.setAttribute('data-bs-theme', darkMode ? 'dark' : 'light');
@@ -90,7 +148,9 @@ function App() {
     if (taskId) {
       interval = setInterval(async () => {
         try {
-          const res = await axios.get(`http://127.0.0.1:5000/status/${taskId}`);
+          const res = await axios.get(`${API_BASE_URL}/status/${taskId}`, {
+            headers: { 'X-API-Key': apiKey }
+          });
           const data = res.data;
           setProgress(data.progress);
           setLogs(data.logs || []);
@@ -107,11 +167,17 @@ function App() {
           }
         } catch (err) {
           console.error("Polling Error:", err);
+          if (err.response?.status === 401) {
+            setError('API key invalid or expired. Please re-authenticate.');
+            setLoading(false);
+            setTaskId(null);
+            handleLogout();
+          }
         }
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [taskId]);
+  }, [taskId, apiKey]);
 
   // --- FILE HANDLING ---
   const handleFileChange = (e) => {
@@ -171,10 +237,17 @@ function App() {
     setProgress(0);
 
     try {
-      const res = await axios.post('http://127.0.0.1:5000/upload', formData);
+      const res = await axios.post(`${API_BASE_URL}/upload`, formData, {
+        headers: { 'X-API-Key': apiKey }
+      });
       setTaskId(res.data.task_id);
     } catch (err) {
-      setError(err.response?.data?.error || 'Upload Failed');
+      if (err.response?.status === 401) {
+        setError('API key invalid or expired. Please re-authenticate.');
+        handleLogout();
+      } else {
+        setError(err.response?.data?.error || 'Upload Failed');
+      }
       setLoading(false);
     }
   };
@@ -184,6 +257,69 @@ function App() {
     const newType = e.target.value;
     setDetectedTaskType(newType);
     setSelectedModels(MODELS_CONFIG[newType]);
+  }
+
+  // --- API KEY LOGIN SCREEN ---
+  if (!apiKey) {
+    return (
+      <div className="container py-5">
+        <div className="row justify-content-center">
+          <div className="col-md-6 col-lg-5">
+            <div className="glass-card p-4 p-md-5 animate__animated animate__fadeInUp">
+              <div className="text-center mb-4">
+                <h1 className="fw-bold mb-2" style={{
+                  background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent'
+                }}>
+                  AutoML
+                </h1>
+                <p className="text-muted">Enter your API key to continue</p>
+              </div>
+
+              <form onSubmit={handleApiKeySubmit}>
+                <div className="mb-3">
+                  <label className="form-label fw-bold text-uppercase small text-muted">API Key</label>
+                  <input
+                    type="password"
+                    className="form-control"
+                    placeholder="Enter your API key"
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    disabled={isValidatingKey}
+                    autoFocus
+                  />
+                </div>
+
+                {keyError && (
+                  <div className="alert alert-danger py-2 rounded-3 border-0 shadow-sm mb-3">
+                    {keyError}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  className="btn btn-primary w-100 py-2"
+                  disabled={isValidatingKey || !apiKeyInput.trim()}
+                >
+                  {isValidatingKey ? (
+                    <span><span className="spinner-border spinner-border-sm me-2"></span> Validating...</span>
+                  ) : (
+                    'Authenticate'
+                  )}
+                </button>
+              </form>
+
+              <div className="text-center mt-4">
+                <div onClick={() => setDarkMode(!darkMode)} className="d-inline-block" style={{ cursor: 'pointer' }}>
+                  <span style={{ fontSize: '1.2rem' }}>{darkMode ? '🌙' : '☀️'}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -201,9 +337,14 @@ function App() {
           <p className="text-muted mb-0">Upload CSV, Select Target, Relax.</p>
         </div>
 
-        <div onClick={() => setDarkMode(!darkMode)} className="glass-card d-flex align-items-center justify-content-center"
-          style={{ width: '50px', height: '50px', cursor: 'pointer' }}>
-          <span style={{ fontSize: '1.5rem' }}>{darkMode ? '🌙' : '☀️'}</span>
+        <div className="d-flex align-items-center gap-3">
+          <button onClick={handleLogout} className="btn btn-outline-secondary btn-sm" title="Logout">
+            Logout
+          </button>
+          <div onClick={() => setDarkMode(!darkMode)} className="glass-card d-flex align-items-center justify-content-center"
+            style={{ width: '50px', height: '50px', cursor: 'pointer' }}>
+            <span style={{ fontSize: '1.5rem' }}>{darkMode ? '🌙' : '☀️'}</span>
+          </div>
         </div>
       </div>
 
@@ -311,7 +452,7 @@ function App() {
         {error && <div className="alert alert-danger mt-3 rounded-3 border-0 shadow-sm">{error}</div>}
       </div>
 
-      {results && <Leaderboard results={results} darkMode={darkMode} taskId={completedTaskId} />}
+      {results && <Leaderboard results={results} darkMode={darkMode} taskId={completedTaskId} apiKey={apiKey} />}
     </div>
   );
 }

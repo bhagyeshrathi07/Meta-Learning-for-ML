@@ -156,6 +156,59 @@ npm start
 
 ---
 
+## 🔐 API Key Authentication
+
+The application is protected by API key authentication to prevent unauthorized access.
+
+### Setup
+1. Create a `.env` file in the `backend/` folder:
+```bash
+cd automl-app/backend
+echo "AUTOML_API_KEY=your-secret-key-here" > .env
+```
+
+2. Replace `your-secret-key-here` with a strong, unique key.
+
+3. Users must enter this API key in the login screen to access the application.
+
+> **Note:** The `.env` file is excluded from git. Never commit your API key.
+
+---
+
+## 🐳 Docker Deployment
+
+Deploy the application as a single Docker container where Flask serves both the API and the React frontend.
+
+### Prerequisites
+* Docker installed on your server
+
+### Build the Image
+```bash
+cd automl-app
+docker build -t automl .
+```
+
+### Run the Container
+```bash
+docker run -d \
+  -p 5000:5000 \
+  -e AUTOML_API_KEY=your-secret-key-here \
+  --name automl \
+  automl
+```
+
+The application will be available at `http://your-server-ip:5000`
+
+### Useful Commands
+```bash
+docker logs automl       # View application logs
+docker stop automl       # Stop the container
+docker start automl      # Start the container
+docker rm automl         # Remove the container
+```
+
+---
+
 ## 📂 Project Structure
 
 ```text

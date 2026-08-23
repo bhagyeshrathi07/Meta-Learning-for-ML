@@ -3,6 +3,7 @@ backend/.venv/
 backend/__pycache__/
 backend/uploads/
 backend/models/
+backend/.env
 .idea/
 
 # Node/React

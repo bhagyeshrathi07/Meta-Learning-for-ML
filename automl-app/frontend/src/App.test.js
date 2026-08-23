@@ -1,8 +1,18 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+jest.mock('axios', () => ({
+  get: jest.fn(),
+  post: jest.fn(),
+}));
+
+beforeEach(() => {
+  localStorage.clear();
+});
+
+test('prompts an unauthenticated user for an API key', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+
+  expect(screen.getByText(/enter your api key to continue/i)).not.toBeNull();
+  expect(screen.getByRole('button', { name: /authenticate/i }).disabled).toBe(true);
 });

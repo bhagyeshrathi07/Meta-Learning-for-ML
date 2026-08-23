@@ -1,0 +1,30 @@
+# Git
+.git
+.gitignore
+
+# Python
+backend/.venv
+backend/__pycache__
+backend/uploads/*
+backend/models/*
+backend/.env
+*.pyc
+*.pyo
+
+# Node
+frontend/node_modules
+frontend/build
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+*.md
+*.log
