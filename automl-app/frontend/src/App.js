@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import Papa from 'papaparse';
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -43,20 +43,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Create axios instance with API key header
-  const api = axios.create({
-    baseURL: API_BASE_URL,
-    headers: apiKey ? { 'X-API-Key': apiKey } : {}
-  });
-
-  // Validate API key on app load if one exists in localStorage
-  useEffect(() => {
-    if (apiKey) {
-      validateApiKey(apiKey);
-    }
-  }, []);
-
-  const validateApiKey = async (key) => {
+  const validateApiKey = useCallback(async (key) => {
     setIsValidatingKey(true);
     setKeyError('');
     try {
@@ -75,7 +62,14 @@ function App() {
     } finally {
       setIsValidatingKey(false);
     }
-  };
+  }, []);
+
+  // Validate API key on app load if one exists in localStorage
+  useEffect(() => {
+    if (apiKey) {
+      validateApiKey(apiKey);
+    }
+  }, [apiKey, validateApiKey]);
 
   const handleApiKeySubmit = (e) => {
     e.preventDefault();
